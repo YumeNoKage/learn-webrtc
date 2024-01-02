@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Document</title>
+</head>
+<body>
+  <div>
+    <button onclick="getCam()">get camera</button>
+    <button onclick="call()">call</button>
+  </div>
+  <div id="root">
+    <video id="localVideo" autoplay playsinline></video>
+    <video id="remoteVideo" autoplay playsinline></video>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+  <script>
+    const socket = io();
+    const peerConnection = new RTCPeerConnection({
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        // Add more STUN or TURN servers if necessary
+      ],
+    });
+    const localVideo = document.getElementById('localVideo');
+    const remoteVideo = document.getElementById('remoteVideo');
+
+    function getCam(){
+      alert('Camera Access')
+      navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+        .then((stream) => {
+          // Display local video
+          localVideo.srcObject = stream;
+
+          // Add local stream to the peer connection
+          stream.getTracks().forEach(track => peerConnection.addTrack(track, stream));
+        }).catch(error => console.error('Error accessing media devices:', error));
+    }
+
+    // Create and send an offer when the user clicks a "Call" button
+    function call(){
+      peerConnection.createOffer()
+        .then((offer) => peerConnection.setLocalDescription(offer))
+        .then(() => {
+          // Send the offer to the other peer through the signaling server
+          socket.emit('offer', peerConnection.localDescription);
+        });
+    }
+
+    // Listen for signaling events
+    socket.on('offer', (offer) => {
+      peerConnection.setRemoteDescription(offer)
+
+      // Create an answer
+      peerConnection.createAnswer()
+        .then((answer) => peerConnection.setLocalDescription(answer))
+        .then(() => {
+          socket.emit('answer', peerConnection.localDescription)
+        })
+        .catch(error => console.log('Error creating or setting local description:', error))
+      
+      if (peerConnection.connectionState === 'have-remote-offer' || peerConnection.connectionState === 'have-local-pranswer') {
+        peerConnection.setRemoteDescription(answer)
+          .then(() => {
+            // Continue with other steps
+            console.log(answer)
+          })
+          .catch(error => console.error('Error setting remote description:', error));
+      } else {
+        console.warn('Invalid connection state for setRemoteDescription:', peerConnection.connectionState);
+      }
+    })
+
+    socket.on('answer', (answer) => peerConnection.setRemoteDescription(answer))
+    socket.on('ice-candidate', (candidate) => peerConnection.addIceCandidate(candidate))
+
+    // Listen for remote stream and display it
+    peerConnection.addEventListener('track', (event) => {
+      remoteVideo.srcObject = new MediaStream([event.track]);
+    });
+  </script>
+</body>
+</html>
