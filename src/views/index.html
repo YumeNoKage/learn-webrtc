@@ -4,10 +4,15 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Document</title>
+  <style>
+    *{
+      background-color: #181a1b;
+      color : gray;
+    }
+  </style>
 </head>
 <body>
   <div>
-    <!-- <button onclick="getCam()">get camera</button> -->
     <div style="display: flex; margin-bottom: 1rem;">
       <button onclick="createSession()">New Session</button>
       <input type="text" name="createdId" id="createdId" readonly>
@@ -26,9 +31,12 @@
   <script>
     const connection = new Map()
     const socket = io();
-    const peerConnection = new RTCPeerConnection();
     const localVideo = document.getElementById('localVideo');
     const remoteVideo = document.getElementById('remoteVideo');
+
+    const sessionId = document.getElementById('sessionId').value
+    let peerConnections = new Map();
+    let localStream
 
     function getCam(){
       navigator.mediaDevices.getUserMedia({ video: true, audio: true })
@@ -37,34 +45,78 @@
           localVideo.srcObject = stream;
 
           // Add local stream to the peer connection
-          stream.getTracks().forEach(track => {
-            peerConnection.addTrack(track, stream)
-          });
+          // stream.getTracks().forEach(track => {
+          //   peerConnection.addTrack(track, stream)
+          // });
         }).catch(error => console.error('Error accessing media devices:', error));
     }
+
+
+    socket.on('userJoined', (userId) => {
+      console.log(`User joined: ${userId}`);
+      createPeerConnection(userId);
+    });
 
     // Event handlers for creating/joining sessions
     function createSession() {
       socket.emit('createSession')
       socket.on('sessionCreated', (session) => {
         document.getElementById('createdId').value = session.sessionId
-        if(session){
-          getCam()
-        }
       })
     }
 
-    function joinSession() {
-      const sessionId = document.getElementById('sessionId').value
+    async function joinSession() {
+      navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+        .then((stream) => {
+          // Display local video
+          localStream = stream
+          localVideo.srcObject = stream;
+        })
+        .catch(error => console.error('Error accessing media devices:', error));
+
+      // localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      // localVideo.srcObject = localStream;
       socket.emit('joinSession', { sessionId });
-      // socket.emit('ice-candidate', (candidate) => peerConnection.addIceCandidate(candidate))
-      socket.on('ice-candidate', (candidate) => {
-        console.log(candidate)
-        getCam()
-      })
-      socket.on('userJoined', (user) => {
-        console.log(user)
-      })
+
+      // Code to set up WebRTC and initiate a call
+      // This involves getting user media, creating an RTCPeerConnection, etc.
+      // For simplicity, we'll provide a minimal example below:
+      
+      const offer = await createOffer()
+      socket.emit('offer', { offer, room: sessionId });
+    }
+
+    // create offer 
+    async function createOffer() {
+      const peerConnection = createPeerConnection();
+      localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+
+      const offer = await peerConnection.createOffer();
+      await peerConnection.setLocalDescription(offer);
+
+      return offer;
+    }
+
+    // create p2p connection
+    function createPeerConnection(userId) {
+      const peerConnection = new RTCPeerConnection();
+
+      peerConnections.set(userId, peerConnection);
+
+      peerConnection.onicecandidate = (event) => {
+        if (event.candidate) {
+          socket.emit('ice-candidate', { candidate: event.candidate, sessionId });
+        }
+      };
+
+      peerConnection.ontrack = (event) => {
+        const remoteElementVideo = document.createElement('video');
+        remoteElementVideo.srcObject = event.streams[0];
+        remoteElementVideo.autoplay = true;
+        remoteVideo.appendChild(remoteElementVideo);
+      };
+
+      return peerConnection;
     }
 
     // Event handlers for sending/receiving messages
@@ -101,9 +153,9 @@
     // socket.on('ice-candidate', (candidate) => peerConnection.addIceCandidate(candidate))
 
     // Listen for remote stream and display it
-    peerConnection.addEventListener('track', (event) => {
-      remoteVideo.srcObject = new MediaStream([event.track]);
-    });
+    // peerConnection.addEventListener('track', (event) => {
+    //   remoteVideo.srcObject = new MediaStream([event.track]);
+    // });
   </script>
 </body>
 </html>
